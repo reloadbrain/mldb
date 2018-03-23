@@ -499,6 +499,7 @@ struct ImportTextProcedureWorkInstance
 
     std::shared_ptr<spdlog::logger> logger;
     vector<ColumnPath> knownColumnNames;
+    LightweightHash<ColumnHash, int> inputColumnIndex;
     LightweightHash<ColumnHash, int> columnIndex; //To check for duplicates column names
     int64_t lineOffset;
     // Column names in the CSV file.  This is distinct from the
@@ -673,7 +674,6 @@ struct ImportTextProcedureWorkInstance
         }
 
         // Early check for duplicate column names in input
-        LightweightHash<ColumnHash, int> inputColumnIndex;
         for (unsigned i = 0;  i < inputColumnNames.size();  ++i) {
             const ColumnPath & c = inputColumnNames[i];
             ColumnHash ch(c);
@@ -705,6 +705,15 @@ struct ImportTextProcedureWorkInstance
         }
 
         auto cols = selectBound.info->getKnownColumns();
+
+        // Figure out the effect of each of the clauses in the select
+        // statement
+
+        cerr << "select is " << config.select.print() << endl;
+        auto children = config.select.getChildren();
+        cerr << "has " << children.size() << " children" << endl;
+        cerr << "decomposition has " << selectBound.decomposition.size() << " entries" << endl;
+        cerr << jsonEncode(selectBound.decomposition) << endl;
 
         for (unsigned i = 0;  i < cols.size();  ++i) {
             const auto& col = cols[i];
@@ -758,6 +767,93 @@ struct ImportTextProcedureWorkInstance
             make_pair("iterating", "lines"),
         });
 
+        // Describes any operations that transform a single column into
+        // another single column; these can be run in-place.
+        // This is in order of the input columns; only single input to
+        // single output operations are run.
+        struct ColumnOperation {
+            int outCol = -1;           ///< Output column number
+            BoundSqlExpression bound;  ///< Bound expression to compute column
+            int numTimesRead = 0;      ///< How often was this column read?
+        };
+        
+        std::vector<ColumnOperation> ops(inputColumnNames.size());
+
+        // How many times was each column written?
+        std::vector<int> numTimesWritten(knownColumnNames.size(), 0);
+        
+        std::vector<DecomposedClause> otherClauses;
+
+        bool canUseDecomposed = true;
+        
+        for (auto & d: selectBound.decomposition) {
+
+            // Only single input to single output clauses can be run
+            // in place like this
+            if (d.inputs.size() != 1 || d.inputWildcards.size() != 0
+                || d.outputs.size() != 1 || d.outputWildcards) {
+                canUseDecomposed = false;
+                otherClauses.push_back(d);
+                continue;
+            }
+
+            ColumnPath inputName = *d.inputs.begin();
+            ColumnPath outputName = d.outputs[0];
+
+            auto it = inputColumnIndex.find(inputName);
+            
+            if (it == inputColumnIndex.end()) {
+                otherClauses.push_back(d);
+                continue;
+            }
+
+            int inputIndex = it->second;
+
+            it = columnIndex.find(outputName);
+            if (it == columnIndex.end())
+                throw HttpReturnException(500, "Output column name not found");
+            
+            int outputIndex = it->second;
+
+            ops.at(inputIndex).outCol = outputIndex;
+            if (d.expr->getType() == "selectExpr") {
+                // simple copy
+                auto op
+                    = static_cast<const NamedColumnExpression *>(d.expr.get());
+
+                if (op->expression->getType() == "variable") {
+                    const ColumnPath & varName
+                        = static_cast<const ReadColumnExpression *>
+                        (op->expression.get())->columnName;
+                    if (varName == outputName) {
+                        cerr << "copy " << inputName << " at " << inputIndex
+                             << " to " << outputName << " at " << outputIndex
+                             << endl;
+                        continue;
+                    }
+
+                }
+
+                // Bind a much simpler value
+                ops.at(inputIndex).bound = op->expression->bind(scope);
+                
+                cerr << "compute " << outputName << " at " << outputIndex
+                     << " from " << inputName << " with "
+                     << op->expression->print() << endl;
+                continue;
+            }
+
+            cerr << "warning: operation " << d.expr->print() << " unhandled"
+                 << endl;
+
+            otherClauses.emplace_back(d);
+            canUseDecomposed = false;
+            ExcAssert(false);
+        }
+
+        cerr << "with " << otherClauses.size() << " other clauses" << endl;
+        cerr << "canUseDecomposed = " << canUseDecomposed << endl;
+        
         // Do we have a "where true'?  In that case, we don't need to
         // call the SQL parser
         bool isWhereTrue = config.where->isConstantTrue();
@@ -811,10 +907,10 @@ struct ImportTextProcedureWorkInstance
             {
                 auto & threadAccum = accum.get();
                 threadAccum.threadRecorder = recorder.newChunk(chunkNumber);
-                if (isIdentitySelect)
+                if (isIdentitySelect || canUseDecomposed)
                     threadAccum.specializedRecorder
                         = threadAccum.threadRecorder
-                        ->specializeRecordTabular(inputColumnNames);
+                        ->specializeRecordTabular(knownColumnNames);
                 return true;
             };
 
@@ -941,6 +1037,34 @@ struct ImportTextProcedureWorkInstance
                 threadAccum.specializedRecorder(std::move(rowName),
                                                 rowTs, values.data(),
                                                 values.size(), {});
+            }
+            else if (canUseDecomposed) {
+                std::vector<CellValue> outputValues(knownColumnNames.size());
+                for (size_t i = 0;  i < ops.size();  ++i) {
+                    const ColumnOperation & op = ops[i];
+
+                    // Process this input
+                    if (op.bound && op.outCol != -1) {
+                        ExpressionValue opStorage;
+                        const ExpressionValue & newVal
+                            = op.bound(row, opStorage, GET_ALL);
+                        if (&newVal == &opStorage)
+                            outputValues[op.outCol] = opStorage.stealAtom();
+                        else outputValues[op.outCol] = newVal.getAtom();
+
+                    }
+                    else if (op.outCol != -1) {
+                        // Pure move
+                        outputValues[op.outCol] = std::move(values[i]);
+                    }
+                    else {
+                        // Input column is not used, do nothing
+                    }
+                }
+
+                threadAccum.specializedRecorder(std::move(rowName),
+                                                rowTs, outputValues.data(),
+                                                outputValues.size(), {});
             }
             else {
                 // TODO: optimization for

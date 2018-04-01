@@ -121,112 +121,6 @@ hexEncodeDigest(const std::string & digest)
 
 std::string
 AwsApi::
-getStringToSignV2Multi(const std::string & verb,
-                       const std::string & bucket,
-                       const std::string & resource,
-                       const std::string & subResource,
-                       const std::string & contentType,
-                       const std::string & contentMd5,
-                       const std::string & date,
-                       const std::vector<std::pair<std::string, std::string> > & headers)
-{
-    map<string, string> canonHeaders;
-    for (auto it = headers.begin(), end = headers.end();
-         it != end;  ++it) {
-        string key = ML::lowercase(it->first);
-        if (key.find("x-amz") != 0) continue;
-
-        string value = it->second;
-        if (canonHeaders.count(key))
-            canonHeaders[key] += ",";
-        canonHeaders[key] += value;
-    }
-    
-    return getStringToSignV2(verb, bucket, resource, subResource,
-                             contentType, contentMd5, date, canonHeaders);
-}
-
-/*
-Authorization = "AWS" + " " + AWSAccessKeyId + ":" + Signature;
-
-Signature = Base64( HMAC-SHA1( YourSecretAccessKeyID, UTF-8-Encoding-Of( StringToSign ) ) );
-
-StringToSign = HTTP-Verb + "\n" +
-    Content-MD5 + "\n" +
-    Content-Type + "\n" +
-    Date + "\n" +
-    CanonicalizedAmzHeaders +
-    CanonicalizedResource;
-
-CanonicalizedResource = [ "/" + Bucket ] +
-    <HTTP-Request-URI, from the protocol name up to the query string> +
-    [ sub-resource, if present. For example "?acl", "?location", "?logging", or "?torrent"];
-
-CanonicalizedAmzHeaders = <described below>
-To construct the CanonicalizedAmzHeaders part of StringToSign, select all HTTP request headers that start with 'x-amz-' (using a case-insensitive comparison) and use the following process.
-
-CanonicalizedAmzHeaders Process
-1	Convert each HTTP header name to lower-case. For example, 'X-Amz-Date' becomes 'x-amz-date'.
-2	Sort the collection of headers lexicographically by header name.
-3	Combine header fields with the same name into one "header-name:comma-separated-value-list" pair as prescribed by RFC 2616, section 4.2, without any white-space between values. For example, the two metadata headers 'x-amz-meta-username: fred' and 'x-amz-meta-username: barney' would be combined into the single header 'x-amz-meta-username: fred,barney'.
-4	"Unfold" long headers that span multiple lines (as allowed by RFC 2616, section 4.2) by replacing the folding white-space (including new-line) by a single space.
-5	Trim any white-space around the colon in the header. For example, the header 'x-amz-meta-username: fred,barney' would become 'x-amz-meta-username:fred,barney'
-6	Finally, append a new-line (U+000A) to each canonicalized header in the resulting list. Construct the CanonicalizedResource element by concatenating all headers in this list into a single string.
-
-
-*/
-std::string
-AwsApi::
-getStringToSignV2(const std::string & verb,
-                  const std::string & bucket,
-                  const std::string & resource,
-                  const std::string & subResource,
-                  const std::string & contentType,
-                  const std::string & contentMd5,
-                  const std::string & date,
-                  const std::map<std::string, std::string> & headers)
-{
-    string canonHeaderString;
-
-    for (auto it = headers.begin(), end = headers.end();
-         it != end;  ++it) {
-        string key = ML::lowercase(it->first);
-        if (key.find("x-amz") != 0) continue;
-
-        string value = it->second;
-
-        canonHeaderString += key + ":" + value + "\n";
-    }
-
-    //cerr << "bucket = " << bucket << " resource = " << resource << endl;
-
-    string canonResource
-        = (bucket == "" ? "" : "/" + bucket)
-        + resource
-        + (subResource.empty() ? "" : "?")
-        + subResource;
-
-    string stringToSign
-        = verb + "\n"
-        + contentMd5 + "\n"
-        + contentType + "\n"
-        + date + "\n"
-        + canonHeaderString
-        + canonResource;
-
-    return stringToSign;
-}
-
-std::string
-AwsApi::
-signV2(const std::string & stringToSign,
-       const std::string & accessKey)
-{
-    return base64EncodeDigest(hmacSha1Digest(stringToSign, accessKey));
-}
-
-std::string
-AwsApi::
 uriEncode(const std::string & str)
 {
     std::string result;
@@ -306,14 +200,23 @@ addSignatureV4(BasicRequest & request,
                std::string region,
                std::string accessKeyId,
                std::string accessKey,
-               Date now)
+               Date now,
+               PayloadDigest digest)
 {
     string dateStr = now.print("%Y%m%dT%H%M%SZ");
 
     //cerr << "dateStr = " << dateStr << endl;
 
-    request.headers.push_back({"X-Amz-Date", dateStr});
+    request.headers.push_back({"x-amz-date", dateStr});
 
+    string payloadHash;
+    if (digest == PLD_ON || digest == PLD_IMPLICIT)
+        payloadHash = hexEncodeDigest(sha256Digest(request.payload));
+    else payloadHash = "UNSIGNED-PAYLOAD";
+
+    if (digest != PLD_IMPLICIT)
+        request.headers.push_back({"x-amz-content-sha256", payloadHash});
+    
     string canonicalHeaders;
     string signedHeaders;
 
@@ -347,11 +250,14 @@ addSignatureV4(BasicRequest & request,
 
     //cerr << "payload = " << request.payload << endl;
 
-    string payloadHash = hexEncodeDigest(sha256Digest(request.payload));
+    string relativeUri
+        = (!request.relativeUri.empty() && request.relativeUri[0] == '/')
+        ? request.relativeUri
+        : "/" + request.relativeUri;
     
     string canonicalRequest
         = request.method + "\n"
-        + "/" + request.relativeUri + "\n"
+        + relativeUri + "\n"
         + canonicalQueryParams + "\n"
         + canonicalHeaders + "\n"
         + signedHeaders + "\n"
@@ -366,19 +272,6 @@ addSignatureV4(BasicRequest & request,
     auto addParam = [&] (string key, string value)
         {
             authHeader += key + "=" + value + ", ";
-
-#if 0
-            if (request.method == "POST") {
-                authHeader
-
-                if (!request.payload.empty())
-                    request.payload += "&";
-                request.payload += uriEncode(key) + "=" + uriEncode(value);
-            }
-            else if (request.method == "GET") {
-                request.queryParams.push_back({key, value});
-            }
-#endif
         };
 
 
@@ -483,7 +376,8 @@ setCredentials(const std::string & accessKeyId,
 
 AwsBasicApi::BasicRequest
 AwsBasicApi::
-signPost(RestParams && params, const std::string & resource)
+signPost(RestParams && params, const std::string & resource,
+         Date date, PayloadDigest digest)
 {
     BasicRequest result;
     result.method = "POST";
@@ -505,7 +399,8 @@ signPost(RestParams && params, const std::string & resource)
 
     result.payload = encodedPayload;
     
-    addSignatureV4(result, serviceName, region, accessKeyId, accessKey);
+    addSignatureV4(result, serviceName, region, accessKeyId, accessKey,
+                   date, digest);
 
     return result;
 
@@ -513,7 +408,8 @@ signPost(RestParams && params, const std::string & resource)
 
 AwsBasicApi::BasicRequest
 AwsBasicApi::
-signGet(RestParams && params, const std::string & resource)
+signGet(RestParams && params, const std::string & resource,
+        Date date, PayloadDigest digest)
 {
     BasicRequest result;
     result.method = "GET";
@@ -521,7 +417,8 @@ signGet(RestParams && params, const std::string & resource)
     result.headers.push_back({"Host", serviceHost});
     result.queryParams = params;
 
-    addSignatureV4(result, serviceName, region, accessKeyId, accessKey);
+    addSignatureV4(result, serviceName, region, accessKeyId, accessKey,
+                   date, digest);
 
     return result;
 }
@@ -530,9 +427,11 @@ std::unique_ptr<tinyxml2::XMLDocument>
 AwsBasicApi::
 performPost(RestParams && params,
             const std::string & resource,
-            double timeoutSeconds)
+            double timeoutSeconds,
+            Date date, PayloadDigest digest)
 {
-    return perform(signPost(std::move(params), resource), timeoutSeconds, 3);
+    return perform(signPost(std::move(params), resource, date, digest),
+                   timeoutSeconds, 3);
 }
 
 std::string
@@ -540,9 +439,12 @@ AwsBasicApi::
 performPost(RestParams && params,
             const std::string & resource,
             const std::string & resultSelector,
-            double timeoutSeconds)
+            double timeoutSeconds,
+            Date date,
+            PayloadDigest digest)
 {
-    return extract<string>(*performPost(std::move(params), resource, timeoutSeconds),
+    return extract<string>(*performPost(std::move(params), resource,
+                                        timeoutSeconds, date, digest),
                            resultSelector);
 }
 
@@ -550,9 +452,12 @@ std::unique_ptr<tinyxml2::XMLDocument>
 AwsBasicApi::
 performGet(RestParams && params,
            const std::string & resource,
-           double timeoutSeconds)
+           double timeoutSeconds,
+           Date date,
+           PayloadDigest digest)
 {
-    return perform(signGet(std::move(params), resource), timeoutSeconds, 3);
+    return perform(signGet(std::move(params), resource, date, digest),
+                   timeoutSeconds, 3);
 }
 
 std::unique_ptr<tinyxml2::XMLDocument>
@@ -596,9 +501,12 @@ AwsBasicApi::
 performGet(RestParams && params,
            const std::string & resource,
            const std::string & resultSelector,
-           double timeoutSeconds)
+           double timeoutSeconds,
+           Date date,
+           PayloadDigest digest)
 {
-    return extract<string>(*performGet(std::move(params), resource, timeoutSeconds),
+    return extract<string>(*performGet(std::move(params), resource,
+                                       timeoutSeconds, date, digest),
                            resultSelector);
 }
 

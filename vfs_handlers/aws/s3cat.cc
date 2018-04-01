@@ -32,6 +32,7 @@ int main(int argc, char* argv[])
     vector<string> outputFiles;
     string s3KeyId;
     string s3Key;
+    bool progress = false;
     
     po::options_description desc("Main options");
     desc.add_options()
@@ -39,6 +40,7 @@ int main(int argc, char* argv[])
         ("output-uri,o", po::value(&outputFiles), "Output files/uris (can have multiple file/s3://bucket/object)")
         ("s3-key-id,I", po::value<string>(&s3KeyId), "S3 key id")
         ("s3-key,K", po::value<string>(&s3Key), "S3 key")
+        ("progress,p", po::value<bool>(&progress), "Show progress")
         ("help,h", "Produce help message");
     
     po::positional_options_description pos;
@@ -73,13 +75,17 @@ int main(int argc, char* argv[])
         for (auto f: outputFiles){
             if(f.substr(0, 5) == "s3://"){
                 size_t pos = f.substr(5).find("/");
-                registerS3Bucket(f.substr(5, pos), s3KeyId, s3Key);
+                registerS3Bucket(f.substr(5, pos), s3KeyId, s3Key,
+                                 S3Api::defaultBandwidthToServiceMbps,
+                                 "", "", "");
             }
         }
         for (auto f: inputFiles){
             if(f.substr(0, 5) == "s3://"){
                 size_t pos = f.substr(5).find("/");
-                registerS3Bucket(f.substr(5, pos), s3KeyId, s3Key);
+                registerS3Bucket(f.substr(5, pos), s3KeyId, s3Key,
+                                 S3Api::defaultBandwidthToServiceMbps,
+                                 "", "", "");
             }
         }
     }
@@ -90,9 +96,14 @@ int main(int argc, char* argv[])
     for (auto f: outputFiles)
         outStreams.emplace_back(f);
 
-    size_t bufSize = 4096 * 16;
+    size_t bufSize = 4096 * 64;
     char buf[bufSize];
 
+    Date start = Date::now();
+    Date lastWrite = start;
+    size_t bytesDone = 0;
+    size_t lastBytesDone = 0;
+    
     for (auto f: inputFiles) {
         if (f == "-") {
 
@@ -132,6 +143,22 @@ int main(int argc, char* argv[])
                         outStreams[s].write(buf, read);
                     }
                 }
+
+                bytesDone += read;
+                
+                Date now(Date::now());
+                if (!stream || (progress && now.secondsSince(lastWrite) > 1.0)) {
+                    double elapsedLast = now.secondsSince(lastWrite);
+                    double elapsedTotal = now.secondsSince(start);
+                    double mbLast = (bytesDone - lastBytesDone) / 1000000.0;
+                    double mbTotal = bytesDone / 1000000.0;
+                    cerr << "done " << mbTotal << " Mb; cur "
+                         << mbLast / elapsedLast << " Mb/sec; ovl "
+                         << mbTotal / elapsedTotal << " Mb/sec" << endl;
+                    lastWrite = now;
+                    lastBytesDone = bytesDone;
+                }
+                
             }
         }
     }

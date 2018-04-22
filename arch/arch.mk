@@ -20,6 +20,8 @@ LIBARCH_SOURCES := \
 	rt.cc \
 	abort.cc \
 	spinlock.cc \
+	userfault.cc \
+	segv.cc
 
 ifeq ($(ARCH),x86_64)
 LIBARCH_SOURCES += simd_vector_avx.cc

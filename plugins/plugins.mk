@@ -55,12 +55,13 @@ LIBMLDB_BUILTIN_PLUGIN_SOURCES:= \
 	behavior_dataset.cc \
 	binary_behavior_dataset.cc \
 	sql_csv_scope.cc \
-
+	llvm.cc \
 
 # Needed so that Python plugin can find its header
 $(eval $(call set_compile_option,python_plugin_loader.cc,-I$(PYTHON_INCLUDE_PATH)))
+#$(eval $(call set_compile_option,llvm.cc,-I$(LLVM_INCLUDE_PATH)))
 
-$(eval $(call library,mldb_builtin_plugins,$(LIBMLDB_BUILTIN_PLUGIN_SOURCES),sqlite-mldb ml mldb_lang_plugins mldb_algo_plugins mldb_misc_plugins mldb_ui_plugins mldb_tabular_plugin tsne svm libstemmer edlib algebra svdlibc uap behavior))
+$(eval $(call library,mldb_builtin_plugins,$(LIBMLDB_BUILTIN_PLUGIN_SOURCES),sqlite-mldb ml mldb_lang_plugins mldb_algo_plugins mldb_misc_plugins mldb_ui_plugins mldb_tabular_plugin tsne svm libstemmer edlib algebra svdlibc uap behavior LLVM))
 $(eval $(call library_forward_dependency,mldb_builtin_plugins,mldb_lang_plugins mldb_algo_plugins mldb_misc_plugins mldb_ui_plugins))
 
 $(eval $(call include_sub_make,lang))
@@ -69,6 +70,6 @@ $(eval $(call include_sub_make,misc))
 $(eval $(call include_sub_make,ui))
 
 
-$(LIB)/libmldb_builtin_plugins.so: $(LIB)/libmldb_lang_plugins.so $(LIB)/libmldb_js_plugin.so $(LIB)/libmldb_misc_plugins.so $(LIB)/libmldb_ui_plugins.so
+$(LIB)/libmldb_builtin_plugins.so: $(LIB)/libmldb_lang_plugins.so $(LIB)/libmldb_js_plugin.so $(LIB)/libmldb_misc_plugins.so $(LIB)/libmldb_ui_plugins.so $(LIB)/libmldb_opencl_plugin.so
 
 

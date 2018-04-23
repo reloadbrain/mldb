@@ -30,3 +30,5 @@ $(eval $(call include_sub_make,libarchive,libarchive,../libarchive.mk))
 
 $(eval $(call include_sub_make,casablanca,casablanca,../casablanca.mk))
 $(eval $(call include_sub_make,azure-storage-cpp,azure-storage-cpp,../azure-storage-cpp.mk))
+$(eval $(call include_sub_make,cmake,cmake,../cmake.mk))
+$(eval $(call include_sub_make,llvm,llvm,../llvm.mk))

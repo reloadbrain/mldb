@@ -37,7 +37,8 @@ apt-get install -y \
   valgrind \
   uuid-dev \
   libxml++2.6-dev \
-  libsnappy-dev
+  libsnappy-dev \
+  ocl-icd-opencl-dev
 ```
 ## Installing Docker
 

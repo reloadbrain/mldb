@@ -24,3 +24,5 @@ LIB_LLVM_SO:=$(LIB)/libLLVM.so
 LIB_LLVM_DEPS:=$(LIB)/libLLVM.so
 
 endif
+
+LLVM_INCLUDE_PATH:=$(PWD)/$(BUILD)/$(ARCH)/include

@@ -124,7 +124,7 @@ LIBXML2_INCLUDE_DIR:=/usr/include/libxml2
 # NOTE: to find this, run cmake in the ext/libarchive directory, and then
 # cat config.h | grep '#define' | sed 's/#define /-D/' | sed 's/ /=/' | tr '\n' ' '
 LIBARCHIVE_DEFINES_x86_64:='-DPLATFORM_CONFIG_H="../../../libarchive-config-x86_64.h"' -I$(LIBXML2_INCLUDE_DIR)
-LIBARCHIVE_LIBS_x86_64:=nettle attr lzo2 lzm1 bz2 z xml2 dl icuuc m icudata
+LIBARCHIVE_LIBS_x86_64:=z xml2 dl icuuc m icudata
 
 LIBARCHIVE_DEFINES:=$(LIBARCHIVE_DEFINES_$(ARCH))
 LIBARCHIVE_LIBS:=$(LIBARCHIVE_LIBS_$(ARCH))
@@ -134,7 +134,7 @@ $(eval $(call set_compile_option,$(LIBARCHIVE_SOURCE),-Imldb/ext/libarchive/liba
 
 LIBARCHIVE_LIB_NAME:=archive-mldb
 
-$(eval $(call library,$(LIBARCHIVE_LIB_NAME),$(LIBARCHIVE_SOURCE)))
+$(eval $(call library,$(LIBARCHIVE_LIB_NAME),$(LIBARCHIVE_SOURCE),$(LIBARCHIVE_LIBS)))
 
 LIBARCHIVE_INCLUDE_DIR:=$(PWD)/libarchive
 DEPENDS_ON_LIBARCHIVE_INCLUDES:=$(LIB)/$(LIBARCHIVE_LIB_NAME).so

@@ -764,6 +764,11 @@ struct PathNewHasher
     }
 };
 
+inline Path restDecode(const Utf8String & val, Path *)
+{
+    return Path(val);
+}
+
 } // namespace MLDB
 
 

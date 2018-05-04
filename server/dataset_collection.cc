@@ -285,7 +285,7 @@ void runHttpQuery(std::function<std::vector<MatrixNamedRow> ()> runQuery,
 
 
 /*****************************************************************************/
-/* DATASET COLLECTION                                                         */
+/* DATASET COLLECTION                                                        */
 /*****************************************************************************/
 
 DatasetCollection::
@@ -306,7 +306,7 @@ T getParam(const RestRequest & req, const std::string & name, T defValue)
 {
     for (auto & p: req.params) {
         if (p.first == name) {
-            return boost::lexical_cast<T>(p.second);
+            return restDecode(p.second, (T *)0);
         }
     }
 

@@ -57,6 +57,8 @@ struct ValueDescription {
     virtual void moveValue(void * from, void * to) const = 0;
     virtual void swapValues(void * from, void * to) const = 0;
     virtual void * constructDefault() const = 0;
+    virtual void * constructCopy(const void * other) const = 0;
+    virtual void * constructMove(void * other) const = 0;
     virtual void destroy(void *) const = 0;
 
     
@@ -328,6 +330,16 @@ struct ValueDescriptionT : public ValueDescription {
         return constructDefault(typename std::is_default_constructible<T>::type());
     }
 
+    virtual void * constructCopy(const void * val) const override
+    {
+        return constructCopy(val, typename std::is_copy_constructible<T>::type());
+    }
+
+    virtual void * constructMove(void * val) const override
+    {
+        return constructMove(val, typename std::is_move_constructible<T>::type());
+    }
+
     virtual void destroy(void * val) const override
     {
         delete (T*)val;
@@ -398,6 +410,28 @@ private:
     void * constructDefault(std::false_type) const
     {
         throw MLDB::Exception("type is not default constructible");
+    }
+
+    template<typename X>
+    void * constructCopy(const void * from, X) const
+    {
+        return new T(*((T*)from));
+    }
+
+    void * constructCopy(const void *, std::false_type) const
+    {
+        throw MLDB::Exception("type is not copy constructible");
+    }
+
+    template<typename X>
+    void * constructMove(void * from, X) const
+    {
+        return new T(std::move(*((T*)from)));
+    }
+
+    void * constructMove(void *, std::false_type) const
+    {
+        throw MLDB::Exception("type is not move constructible");
     }
 };
 

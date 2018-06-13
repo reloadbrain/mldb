@@ -56,6 +56,7 @@ LIBMLDB_BUILTIN_PLUGIN_SOURCES:= \
 	binary_behavior_dataset.cc \
 	sql_csv_scope.cc \
 	llvm.cc \
+	import_torch7.cc
 
 # Needed so that Python plugin can find its header
 $(eval $(call set_compile_option,python_plugin_loader.cc,-I$(PYTHON_INCLUDE_PATH)))

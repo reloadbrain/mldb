@@ -499,8 +499,11 @@ void forEachLineBlock(std::shared_ptr<const ContentHandler> content,
                                           int64_t lineNumber)> onLine,
                       int64_t maxLines,
                       int maxParallelism,
-                      std::function<bool (int64_t blockNumber, int64_t lineNumber)> startBlock,
-                      std::function<bool (int64_t blockNumber, int64_t lineNumber)> endBlock,
+                      std::function<bool (int64_t blockNumber,
+                                          int64_t lineNumber,
+                                          size_t numLines)> startBlock,
+                      std::function<bool (int64_t blockNumber,
+                                          int64_t lineNumber)> endBlock,
                       size_t blockSize)
 {
     //static constexpr int64_t BLOCK_SIZE = 100000000;  // 100MB blocks
@@ -680,8 +683,11 @@ void forEachLineBlock(std::shared_ptr<const ContentHandler> content,
                 }
                     
                 int64_t chunkLineNumber = startLine;
+                size_t numLines = (firstLine ? 1 : 0)
+                                + (lineOffsets.empty() ? 0 : lineOffsets.size() - 1);
+
                 if (startBlock)
-                    if (!startBlock(myChunkNumber, chunkLineNumber))
+                    if (!startBlock(myChunkNumber, chunkLineNumber, numLines))
                         return;
 
                 auto doLine = [&] (const char * line, size_t len)

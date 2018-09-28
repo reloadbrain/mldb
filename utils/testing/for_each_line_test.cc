@@ -32,7 +32,6 @@ void testForEachLineBlock(const std::string & data,
                           size_t startOffset,
                           int64_t maxLines = -1)
 {
-    cerr << "test has " << data.size() << " characters" << endl;
     std::vector<std::string> splitLines = split(string(data, startOffset), '\n');
     for (auto & l: splitLines) {
         if (!l.empty() && l.back() == '\r') {
@@ -51,9 +50,11 @@ void testForEachLineBlock(const std::string & data,
     
     string url = "mem://testdata" + std::to_string(++testNumber);
 
+    cerr << endl;
     cerr << "test " << testNumber << " with "
          << splitLines.size() << " lines" << endl;
-
+    cerr << "test has " << data.size() << " characters" << endl;
+    
     {
         filter_ostream stream(url);
         stream << data;
@@ -68,10 +69,13 @@ void testForEachLineBlock(const std::string & data,
     std::atomic<int> numBlocksStarted(0);
     std::atomic<int> numBlocksFinished(0);
     std::atomic<int> numLines(0);
+    std::atomic<int> numLinesInBlockTotal(0);
     
-    auto onStartBlock = [&] (int64_t blockNumber, int64_t lineNumber) -> bool
+    auto onStartBlock = [&] (int64_t blockNumber, int64_t lineNumber,
+                             size_t numLinesInBlock) -> bool
         {
             ++numBlocksStarted;
+            numLinesInBlockTotal += numLinesInBlock;
             return true;
         };
 
@@ -101,6 +105,8 @@ void testForEachLineBlock(const std::string & data,
                      onStartBlock, onEndBlock, blockSize);
 
     BOOST_CHECK_EQUAL(numLines, splitLines.size());
+    if (maxLines == -1)
+        BOOST_CHECK_EQUAL(numLinesInBlockTotal, numLines);
     BOOST_CHECK_EQUAL(numBlocksStarted, numBlocksFinished);
 
     cerr << "did " << numBlocksStarted << " blocks" << endl;

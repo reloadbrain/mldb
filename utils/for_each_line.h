@@ -147,9 +147,12 @@ void forEachLineBlock(std::shared_ptr<const ContentHandler> content,
                                           int64_t lineNumber)> onLine,
                       int64_t maxLines = -1,
                       int maxParallelism = 8,
-                      std::function<bool (int64_t blockNumber, int64_t lineNumber)> startBlock
+                      std::function<bool (int64_t blockNumber,
+                                          int64_t lineNumber,
+                                          uint64_t numLines)> startBlock
                           = nullptr,
-                      std::function<bool (int64_t blockNumber, int64_t lineNumber)> endBlock
+                      std::function<bool (int64_t blockNumber,
+                                          int64_t lineNumber)> endBlock
                           = nullptr,
                       size_t blockSize = 2'000'000);
 
